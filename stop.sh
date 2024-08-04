@@ -10,7 +10,7 @@ screen -ls | grep rpitx_session | awk -F. '{print $1}' | xargs kill
 sudo pkill -f tran.sh
 
 # Purge the tmp_files and tmp_sweeps folders
-rm -rf "$HOME/rpitx/src/rife/tmp_files/*"
-rm -rf "$HOME/rpitx/src/rife/tmp_sweeps/*"
+sudo find "$HOME/rpitx/src/rife/tmp_files/" -type f -exec rm -v {} +
+sudo find "$HOME/rpitx/src/rife/tmp_sweeps/" -type f -exec rm -v {} +
 
 echo "Stopped all rpitx processes, screen sessions, tran.sh script, and purged the tmp_files and tmp_sweeps folders"
