@@ -11,9 +11,14 @@ This project uses RPiTX to generate and transmit Rife frequencies. It includes s
 
 2. **Run the Installation Script:**
 
-   The installation script will install the required dependencies, clone the RPiTX repository, and set up the necessary directories and files.
+   The installation script will install the required dependencies, clone the RPiTX repository, and set up the necessary directories and files. Set permissions first with chmod.
 
-   sudo bash rifeinstall.sh
+     chmod +x rifeinstall.sh
+
+   Now you can run the script by typing.
+
+    ./rifeinstall.sh
+   
 
    This script will:
    - Install dependencies (sox, screen).
