@@ -18,7 +18,7 @@ git clone https://github.com/CodeMasterCody3D/RifePi.git
 ```sh
 chmod +x rifeinstall.sh
 
-   Now you can run the script by typing.
+   ###Now you can run the script by typing.
 
     ./rifeinstall.sh
 ```
