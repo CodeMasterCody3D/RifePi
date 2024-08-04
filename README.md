@@ -5,11 +5,13 @@ This project uses RPiTX to generate and transmit Rife frequencies. It includes s
 ## Installation
 
 1. **Clone the Repository:**
-
+   
+'''sh
    git clone https://github.com/CodeMasterCody3D/RifePi.git
    cd RifePi
+'''
 
-2. **Run the Installation Script:**
+3. **Run the Installation Script:**
 
    The installation script will install the required dependencies, clone the RPiTX repository, and set up the necessary directories and files. Set permissions first with chmod.
 
