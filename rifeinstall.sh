@@ -2,6 +2,7 @@
 
 RPITX_DIR="$HOME/rpitx"
 RIFE_DIR="$HOME/rpitx/src/rife"
+TMP_SWEEP_DIR="$HOME/rpitx/src/rife/tmp_sweeps"
 TEST_DIR="$HOME/Test"
 START_SCRIPT="$HOME/start.sh"
 STOP_SCRIPT="$HOME/stop.sh"
@@ -38,9 +39,13 @@ install_rpitx() {
 
 # Function to copy files and set permissions
 install_rife_modification() {
-    # Create rife directory if it doesn't exist
+    # Create rife and tmp_sweeps directories if they don't exist
     if [ ! -d "$RIFE_DIR" ]; then
         mkdir -p "$RIFE_DIR"
+    fi
+
+    if [ ! -d "$TMP_SWEEP_DIR" ]; then
+        mkdir -p "$TMP_SWEEP_DIR"
     fi
 
     # Copy the rife files
