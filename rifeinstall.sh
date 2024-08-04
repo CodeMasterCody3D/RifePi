@@ -1,44 +1,72 @@
 #!/bin/bash
 
-RPITX_DIR="/home/Ri/rpitx"
-RIFE_DIR="/home/Ri/rpitx/src/rife"
-START_SCRIPT="/home/Ri/start.sh"
-STOP_SCRIPT="/home/Ri/stop.sh"
-TRAN_SCRIPT="/home/Ri/rpitx/tran.sh"
+RPITX_DIR="$HOME/rpitx"
+RIFE_DIR="$HOME/rpitx/src/rife"
+TEST_DIR="$HOME/Test"
+START_SCRIPT="$HOME/start.sh"
+STOP_SCRIPT="$HOME/stop.sh"
+TRAN_SCRIPT="$HOME/rpitx/tran.sh"
 
-# Check if rpitx is installed
-if [ ! -d "$RPITX_DIR" ]; then
+# Ensure the script is run as root
+if [ "$(id -u)" -ne 0 ]; then
+    echo "This script must be run as root. Please run with sudo."
+    exit 1
+fi
+
+# Function to install dependencies
+install_dependencies() {
+    echo "Installing dependencies..."
+    apt-get update
+    apt-get install -y sox screen
+}
+
+# Function to remove existing rpitx folder
+remove_existing_rpitx() {
+    if [ -d "$RPITX_DIR" ]; then
+        echo "Removing existing RPiTX directory..."
+        rm -rf "$RPITX_DIR"
+    fi
+}
+
+# Function to install rpitx
+install_rpitx() {
     echo "RPiTX is not installed. Installing now..."
     git clone https://github.com/F5OEO/rpitx.git "$RPITX_DIR"
     cd "$RPITX_DIR"
-    sudo ./install.sh
-else
-    echo "RPiTX is already installed."
-fi
+    ./install.sh
+}
 
-# Create rife directory if it doesn't exist
-if [ ! -d "$RIFE_DIR" ]; then
-    mkdir -p "$RIFE_DIR"
-fi
+# Function to copy files and set permissions
+install_rife_modification() {
+    # Create rife directory if it doesn't exist
+    if [ ! -d "$RIFE_DIR" ]; then
+        mkdir -p "$RIFE_DIR"
+    fi
 
-# Copy the rife files
-echo "Copying rife files..."
-cp -r ./rife/* "$RIFE_DIR/"
+    # Copy the rife files
+    echo "Copying rife files..."
+    cp -r "$TEST_DIR/rife/"* "$RIFE_DIR/"
 
-# Copy start.sh and stop.sh to /home/Ri
-echo "Copying start.sh and stop.sh..."
-cp ./start.sh "$START_SCRIPT"
-cp ./stop.sh "$STOP_SCRIPT"
+    # Copy start.sh and stop.sh to $HOME
+    echo "Copying start.sh and stop.sh..."
+    cp "$TEST_DIR/start.sh" "$START_SCRIPT"
+    cp "$TEST_DIR/stop.sh" "$STOP_SCRIPT"
 
-# Copy tran.sh to /home/Ri/rpitx
-echo "Copying tran.sh..."
-cp ./tran.sh "$TRAN_SCRIPT"
+    # Copy tran.sh to $HOME/rpitx
+    echo "Copying tran.sh..."
+    cp "$TEST_DIR/tran.sh" "$TRAN_SCRIPT"
 
-# Set permissions
-echo "Setting permissions..."
-chmod +x "$START_SCRIPT"
-chmod +x "$STOP_SCRIPT"
-chmod +x "$TRAN_SCRIPT"
-chmod -R +x "$RIFE_DIR"
+    # Set permissions and ownership
+    echo "Setting permissions and ownership..."
+    chown -R "$USER:$USER" "$RIFE_DIR" "$START_SCRIPT" "$STOP_SCRIPT" "$TRAN_SCRIPT"
+    chmod +x "$START_SCRIPT" "$STOP_SCRIPT" "$TRAN_SCRIPT"
+    chmod -R +x "$RIFE_DIR"
 
-echo "Installation complete."
+    echo "Installation complete."
+}
+
+# Main script execution
+install_dependencies
+remove_existing_rpitx
+install_rpitx
+install_rife_modification

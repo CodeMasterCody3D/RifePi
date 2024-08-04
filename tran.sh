@@ -1,16 +1,17 @@
 #!/bin/bash
 
+# Define variables
 DEFAULT_OUTPUT_FREQ=3.1e6
-TMP_DIR="/home/Ri/rpitx/src/rife/tmp_files"
-SWEEP_DIR="/home/Ri/rpitx/src/rife/sweeps"
+HOME_DIR="$HOME"
+TMP_DIR="$HOME_DIR/rpitx/src/rife/tmp_files"
+TMP_SWEEP_DIR="$HOME_DIR/rpitx/src/rife/tmp_sweeps"
 AUDIO_AMPLITUDE=0.5
 GAIN_AMPLITUDE=8.0
-DURATION=180
-JSON_FILE="/home/Ri/rpitx/src/rife/bdata_clean.json"
-RPITX_PATH="/home/Ri/rpitx"
+DEFAULT_DURATION=180
+CUSTOM_SWEEP_DURATION=300
+JSON_FILE="$HOME_DIR/rpitx/src/rife/bdata_clean.json"
+RPITX_PATH="$HOME_DIR/rpitx"
 LOG_FILE="/tmp/rife_transmission.log"
-SWEEP_20MIN="$SWEEP_DIR/1-20k.wav"
-SWEEP_4HR="$SWEEP_DIR/square_wave_sweep_4hr.wav"
 
 choose_output_frequency() {
     OUTPUT_FREQ=$(whiptail --inputbox "Enter output Frequency (in Hz). Default is 3.1 MHz" 8 78 $DEFAULT_OUTPUT_FREQ --title "Change Carrier Frequency" 3>&1 1>&2 2>&3)
@@ -40,104 +41,122 @@ choose_waveform() {
     echo $waveform
 }
 
-choose_duration() {
-    duration=$(whiptail --inputbox "Enter duration (seconds):" 8 78 --title "Duration" 3>&1 1>&2 2>&3)
+prompt_sweep_duration() {
+    start_freq="$1"
+    end_freq="$2"
+    CUSTOM_SWEEP_DURATION=$(whiptail --inputbox "Enter duration for sweep from ${start_freq} Hz to ${end_freq} Hz (seconds). Warning: Long durations combined with high frequencies may cause the process to fail." 8 78 $CUSTOM_SWEEP_DURATION --title "Sweep Duration" 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ]; then
         echo "User cancelled."
         exit 1
     fi
-    echo $duration
 }
 
 generate_wav_files() {
     condition="$1"
     waveform="$2"
     audio_amplitude="$3"
-    default_duration="$4"
+    custom_sweep_duration="$4"
+    default_duration=$DEFAULT_DURATION
     python3 << EOF
 import os
 import numpy as np
 import wave
 import json
-from multiprocessing import Pool
 
 def generate_wave(freq, sample_rate, duration, amplitude, waveform):
     t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
     if waveform == "sine":
-        wave = amplitude * np.sin(2 * np.pi * freq * t)
+        wave_data = amplitude * np.sin(2 * np.pi * freq * t)
     elif waveform == "square":
-        wave = amplitude * np.sign(np.sin(2 * np.pi * freq * t))
+        wave_data = amplitude * np.sign(np.sin(2 * np.pi * freq * t))
     elif waveform == "sawtooth":
-        wave = amplitude * (2 * (t * freq - np.floor(t * freq + 0.5)))
+        wave_data = amplitude * (2 * (t * freq - np.floor(t * freq + 0.5)))
     elif waveform == "harmonic":
-        wave = np.zeros_like(t)
+        wave_data = np.zeros_like(t)
         for n in range(1, 11):
-            wave += amplitude * np.sin(2 * np.pi * freq * n * t)
-    return (wave * 32767).astype(np.int16)
+            wave_data += amplitude * np.sin(2 * np.pi * freq * n * t)
+    return (wave_data * 32767).astype(np.int16)
 
 def determine_sample_rate(freq):
-    if freq <= 24000:
-        return 48000
-    else:
-        sample_rate = 2 * freq
-        return min(sample_rate, 250000)
+    return 48000 if freq <= 24000 else min(2 * freq, 250000)
 
-def create_wav_file(args):
-    freq, duration, amplitude, waveform, sample_rate, wav_file_path = args
-    try:
-        t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
-        if '-' in freq:
-            start_freq, end_freq = map(float, freq.split('-'))
-            k = (end_freq - start_freq) / duration
-            sweep_wave = np.zeros_like(t)
-            for i in range(len(t)):
-                sweep_wave[i] = amplitude * np.sin(2 * np.pi * (start_freq * t[i] + (k / 2) * t[i] ** 2))
-            wave_data = sweep_wave
-        else:
-            wave_data = generate_wave(float(freq), sample_rate, duration, amplitude, waveform)
-
-        with wave.open(wav_file_path, 'w') as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(sample_rate)
-            wav_file.writeframes(wave_data.tobytes())
-        print(f"Generated WAV file for {freq} Hz with duration {duration} seconds at {wav_file_path}")
-    except Exception as e:
-        print(f"Error generating WAV file for {freq} Hz: {e}")
-
-def create_wav_files_for_condition(condition, data, tmp_dir, sweep_dir, amplitude, default_duration, waveform):
+def create_wav_files_for_condition(condition, data, tmp_dir, tmp_sweep_dir, amplitude, default_duration, custom_sweep_duration, waveform):
     if not os.path.exists(tmp_dir):
         os.makedirs(tmp_dir)
-    if not os.path.exists(sweep_dir):
-        os.makedirs(sweep_dir)
-
+    if not os.path.exists(tmp_sweep_dir):
+        os.makedirs(tmp_sweep_dir)
+    
     generated_files = []
-    tasks = []
-
     for freq_entry in condition['frequencies']:
         freq_entries = str(freq_entry).split(', ')
         for freq in freq_entries:
             if '=' in freq:
-                freq, duration = freq.split('=')
-                freq = freq.strip()
-                if duration == "ask":
-                    duration = float(input(f"Enter duration for {freq} Hz: "))
+                if '-' in freq:
+                    start_freq, rest = freq.split('-')
+                    end_freq, _ = rest.split('=')
+                    start_freq = float(start_freq)
+                    end_freq = float(end_freq)
+                    duration = float(custom_sweep_duration)
+                    
+                    print(f"Using duration: {duration} for sweep {start_freq}-{end_freq}")  # Debug statement
+
+                    sample_rate = determine_sample_rate(max(start_freq, end_freq))
+                    wav_file_name = f"sweep_{int(start_freq)}-{int(end_freq)}_{int(duration)}.wav"
+                    wav_file_path = os.path.join(tmp_sweep_dir, wav_file_name)
+
+                    if not os.path.exists(wav_file_path):
+                        t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+                        sweep_wave = np.zeros_like(t)
+                        k = (end_freq - start_freq) / duration
+                        for i in range(len(t)):
+                            sweep_wave[i] = amplitude * np.sin(2 * np.pi * (start_freq * t[i] + (k / 2) * t[i] ** 2))
+                        with wave.open(wav_file_path, 'w') as wav_file:
+                            wav_file.setnchannels(1)
+                            wav_file.setsampwidth(2)
+                            wav_file.setframerate(sample_rate)
+                            wav_file.writeframes((sweep_wave * 32767).astype(np.int16).tobytes())
+                        print(f"Generated WAV file for sweep {start_freq} Hz to {end_freq} Hz over {duration} seconds at {wav_file_path}")
+                    else:
+                        print(f"WAV file for sweep {start_freq} Hz to {end_freq} Hz already exists at {wav_file_path}")
+                    generated_files.append(wav_file_path)
                 else:
+                    freq, duration = freq.split('=')
+                    freq = float(freq)
                     duration = float(duration)
-            else:
-                duration = default_duration
-            sample_rate = determine_sample_rate(float(freq.split('-')[-1]) if '-' in freq else float(freq))
-            wav_file_name = f"{freq.replace('.', '')}.wav" if duration == default_duration else f"{freq.replace('.', '')}_{duration}.wav"
-            wav_file_path = os.path.join(tmp_dir if '=' not in freq else sweep_dir, wav_file_name)
-            if not os.path.exists(wav_file_path):
-                tasks.append((freq, duration, amplitude, waveform, sample_rate, wav_file_path))
-            else:
-                print(f"WAV file for {freq} Hz with duration {duration} seconds already exists at {wav_file_path}")
-            generated_files.append(wav_file_path)
 
-    with Pool() as pool:
-        pool.map(create_wav_file, tasks)
+                    sample_rate = determine_sample_rate(freq)
+                    wav_file_name = f"{int(freq)}_{int(duration)}.wav"
+                    wav_file_path = os.path.join(tmp_dir, wav_file_name)
 
+                    if not os.path.exists(wav_file_path):
+                        wave_data = generate_wave(freq, sample_rate, duration, amplitude, waveform)
+                        with wave.open(wav_file_path, 'w') as wav_file:
+                            wav_file.setnchannels(1)
+                            wav_file.setsampwidth(2)
+                            wav_file.setframerate(sample_rate)
+                            wav_file.writeframes(wave_data.tobytes())
+                        print(f"Generated WAV file for {freq} Hz with duration {duration} seconds at {wav_file_path}")
+                    else:
+                        print(f"WAV file for {freq} Hz with duration {duration} seconds already exists at $wav_file_path")
+                    generated_files.append(wav_file_path)
+            else:
+                freq = float(freq)
+                sample_rate = determine_sample_rate(freq)
+
+                wav_file_name = f"{int(freq)}_{int(default_duration)}.wav"
+                wav_file_path = os.path.join(tmp_dir, wav_file_name)
+
+                if not os.path.exists(wav_file_path):
+                    wave_data = generate_wave(freq, sample_rate, default_duration, amplitude, waveform)
+                    with wave.open(wav_file_path, 'w') as wav_file:
+                        wav_file.setnchannels(1)
+                        wav_file.setsampwidth(2)
+                        wav_file.setframerate(sample_rate)
+                        wav_file.writeframes(wave_data.tobytes())
+                    print(f"Generated WAV file for {freq} Hz with default duration {default_duration} seconds at ${wav_file_path}")
+                else:
+                    print(f"WAV file for {freq} Hz with default duration ${default_duration} seconds already exists at ${wav_file_path}")
+                generated_files.append(wav_file_path)
     return generated_files
 
 with open("$JSON_FILE", 'r') as f:
@@ -147,7 +166,7 @@ condition = next((cond for cond in data['conditions'] if cond['name'] == "$condi
 
 if condition:
     print(f"Generating WAV files for condition: {condition['name']}")
-    generated_files = create_wav_files_for_condition(condition, data, "$TMP_DIR", "$SWEEP_DIR", $AUDIO_AMPLITUDE, $DURATION, "$waveform")
+    generated_files = create_wav_files_for_condition(condition, data, "$TMP_DIR", "$TMP_SWEEP_DIR", $AUDIO_AMPLITUDE, $DEFAULT_DURATION, $CUSTOM_SWEEP_DURATION, "$waveform")
     with open("$TMP_DIR/generated_files.txt", 'w') as f:
         for file in generated_files:
             f.write(file + "\n")
@@ -156,11 +175,39 @@ else:
 EOF
 }
 
-stop_transmissions() {
-    sudo pkill -f rpitx
-    sudo pkill -f tran.sh
-    rm -rf "$TMP_DIR/*"
-    echo "Stopped all transmissions and cleared the temporary files."
+confirm_transmission() {
+    condition_choice="$1"
+    waveform="$2"
+    frequencies=$(jq -r --arg condition "$condition_choice" '.conditions[] | select(.name == $condition) | .frequencies[]' "$JSON_FILE")
+    
+    # Prompt for sweep durations before confirmation
+    for freq_entry in $(jq -r --arg condition "$condition_choice" '.conditions[] | select(.name == $condition) | .frequencies[]' "$JSON_FILE"); do
+        if [[ "$freq_entry" == *"="* ]] && [[ "$freq_entry" == *"-"* ]]; then
+            start_freq=$(echo $freq_entry | cut -d'-' -f1)
+            end_freq=$(echo $freq_entry | cut -d'-' -f2 | cut -d'=' -f1)
+            prompt_sweep_duration $start_freq $end_freq
+        fi
+    done
+
+    # Display the selected frequencies and durations for confirmation
+    frequencies_with_durations=""
+    IFS=$'\n'
+    for freq_entry in $(jq -r --arg condition "$condition_choice" '.conditions[] | select(.name == $condition) | .frequencies[]' "$JSON_FILE"); do
+        if [[ "$freq_entry" == *"="* ]] && [[ "$freq_entry" == *"-"* ]]; then
+            start_freq=$(echo $freq_entry | cut -d'-' -f1)
+            end_freq=$(echo $freq_entry | cut -d'-' -f2 | cut -d'=' -f1)
+            frequencies_with_durations+="Sweep: $start_freq-$end_freq = $CUSTOM_SWEEP_DURATION seconds\n"
+        else
+            frequencies_with_durations+="$freq_entry\n"
+        fi
+    done
+
+    if (whiptail --title "Confirm Transmission" --yesno "Condition: $condition_choice\nFrequencies:\n$frequencies_with_durations\nWaveform: $waveform\n\nDo you want to generate WAV files and transmit these frequencies?" 20 78); then
+        generate_wav_files "$condition_choice" "$waveform" "$AUDIO_AMPLITUDE" "$CUSTOM_SWEEP_DURATION"
+        transmit_files
+    else
+        view_all_conditions
+    fi
 }
 
 view_all_conditions() {
@@ -170,7 +217,7 @@ view_all_conditions() {
         menu_items+=("$condition" "")
     done <<< "$conditions"
 
-    condition_choice=$(whiptail --title "Rife Machine - All Conditions" --menu "Choose a condition to view:" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+    condition_choice=$(whiptail --title "RPiTX - All Conditions" --menu "Choose a condition to view:" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ]; then
         echo "User cancelled."
         rife_menu
@@ -178,27 +225,7 @@ view_all_conditions() {
     fi
 
     waveform=$(choose_waveform)
-    frequencies=$(jq -r --arg condition "$condition_choice" '.conditions[] | select(.name == $condition) | .frequencies[]' "$JSON_FILE")
-    custom_duration=0
-    for freq in $frequencies; do
-        if [[ "$freq" == *=* ]]; then
-            custom_duration=1
-            break
-        fi
-    done
-
-    if [[ $custom_duration -eq 1 ]]; then
-        duration=$(choose_duration)
-    else
-        duration=$DURATION
-    fi
-
-    if (whiptail --title "Confirm Transmission" --yesno "Condition: $condition_choice\nFrequencies:\n$frequencies\nWaveform: $waveform\nDuration: $duration seconds\n\nDo you want to generate WAV files and transmit these frequencies?" 20 78); then
-        generate_wav_files "$condition_choice" "$waveform" "$AUDIO_AMPLITUDE" "$duration"
-        transmit_files
-    else
-        view_all_conditions
-    fi
+    confirm_transmission "$condition_choice" "$waveform"
 }
 
 database_menu() {
@@ -208,7 +235,7 @@ database_menu() {
         menu_items+=("$db" "")
     done <<< "$databases"
 
-    database_choice=$(whiptail --title "Rife Machine - Databases" --menu "Choose a database:" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+    database_choice=$(whiptail --title "RPiTX - Databases" --menu "Choose a database:" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ]; then
         echo "User cancelled."
         rife_menu
@@ -221,7 +248,7 @@ database_menu() {
         menu_items+=("$condition" "")
     done <<< "$conditions"
 
-    condition_choice=$(whiptail --title "Rife Machine - Conditions in $database_choice" --menu "Choose a condition to transmit:" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+    condition_choice=$(whiptail --title "RPiTX - Conditions in $database_choice" --menu "Choose a condition to transmit:" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ]; then
         echo "User cancelled."
         database_menu
@@ -229,32 +256,12 @@ database_menu() {
     fi
 
     waveform=$(choose_waveform)
-    frequencies=$(jq -r --arg condition "$condition_choice" '.conditions[] | select(.name == $condition) | .frequencies[]' "$JSON_FILE")
-    custom_duration=0
-    for freq in $frequencies; do
-        if [[ "$freq" == *=* ]]; then
-            custom_duration=1
-            break
-        fi
-    done
-
-    if [[ $custom_duration -eq 1 ]]; then
-        duration=$(choose_duration)
-    else
-        duration=$DURATION
-    fi
-
-    if (whiptail --title "Confirm Transmission" --yesno "Condition: $condition_choice\nFrequencies:\n$frequencies\nWaveform: $waveform\nDuration: $duration seconds\n\nDo you want to generate WAV files and transmit these frequencies?" 20 78); then
-        generate_wav_files "$condition_choice" "$waveform" "$AUDIO_AMPLITUDE" "$duration"
-        transmit_files
-    else
-        database_menu
-    fi
+    confirm_transmission "$condition_choice" "$waveform"
 }
 
 rife_menu() {
     menu_items=("Database's" "" "View All Database's" "" "Search Database's" "")
-    menuchoice=$(whiptail --title "Rife Machine - Rife Frequencies" --menu "Choose an option:" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+    menuchoice=$(whiptail --title "RPiTX - Rife Frequencies" --menu "Choose an option:" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ]; then
         echo "User cancelled."
         main_menu
@@ -294,7 +301,7 @@ search_database() {
         menu_items+=("$result" "")
     done <<< "$results"
 
-    condition_choice=$(whiptail --title "Rife Machine - Search Results" --menu "Choose a condition:" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+    condition_choice=$(whiptail --title "RPiTX - Search Results" --menu "Choose a condition:" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ]; then
         echo "User cancelled."
         search_database
@@ -302,123 +309,48 @@ search_database() {
     fi
 
     waveform=$(choose_waveform)
-    frequencies=$(jq -r --arg condition "$condition_choice" '.conditions[] | select(.name == $condition) | .frequencies[]' "$JSON_FILE")
-    custom_duration=0
-    for freq in $frequencies; do
-        if [[ "$freq" == *=* ]]; then
-            custom_duration=1
-            break
-        fi
-    done
-
-    if [[ $custom_duration -eq 1 ]]; then
-        duration=$(choose_duration)
-    else
-        duration=$DURATION
-    fi
-
-    if (whiptail --title "Confirm Transmission" --yesno "Condition: $condition_choice\nFrequencies:\n$frequencies\nWaveform: $waveform\nDuration: $duration seconds\n\nDo you want to generate WAV files and transmit these frequencies?" 20 78); then
-        generate_wav_files "$condition_choice" "$waveform" "$AUDIO_AMPLITUDE" "$duration"
-        transmit_files
-    else
-        search_database
-    fi
+    confirm_transmission "$condition_choice" "$waveform"
 }
 
 list_imported_wav_files() {
     wav_files=()
     while IFS= read -r wav_file; do
         wav_files+=("$(basename "$wav_file")" "")
-    done < <(find "$SWEEP_DIR" -name '*.wav')
+    done < <(find "$TMP_SWEEP_DIR" -name '*.wav')
 
-    wav_choice=$(whiptail --title "Rife Machine - Imported WAV Files" --menu "Choose a WAV file to transmit:" 20 78 10 "${wav_files[@]}" 3>&1 1>&2 2>&3)
+    wav_choice=$(whiptail --title "RPiTX - Imported WAV Files" --menu "Choose a WAV file to transmit:" 20 78 10 "${wav_files[@]}" 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ]; then
         echo "User cancelled."
         main_menu
         return
     fi
 
-    echo "$SWEEP_DIR/$wav_choice" > "$TMP_DIR/generated_files.txt"
+    echo "$TMP_SWEEP_DIR/$wav_choice" > "$TMP_DIR/generated_files.txt"
     transmit_files
 }
 
-main_menu() {
-    menu_items=("View All Database's" "" "Database's" "" "Custom" "" "Stop Transmission" "" "Imported WAV files" "")
-    menuchoice=$(whiptail --title "Welcome to RifePi, a Rife Machine to Heal with Frequencies and Jesus" --menu "Choose a category:" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
-    if [ $? -ne 0 ]; then
-        echo "User cancelled."
-        exit 0
-    fi
-
-    case $menuchoice in
-        "View All Database's")
-            view_all_conditions
-            ;;
-        "Database's")
-            rife_menu
-            ;;
-        "Stop Transmission")
-            stop_transmissions
-            ;;
-        "Custom")
-            custom_menu
-            ;;
-        "Imported WAV files")
-            list_imported_wav_files
-            ;;
-    esac
-}
-
-generate_custom_wav1() {
-    freq="$1"
-    duration="$2"
-    waveform="$3"
-    sample_rate=$(determine_sample_rate1 "$freq")
-    python3 << EOF
-import numpy as np
-import wave
-
-freq = $freq
-duration = $duration
-sample_rate = $sample_rate
-amplitude = $AUDIO_AMPLITUDE
-waveform = "$waveform"
-
-t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
-if waveform == "sine":
-    wave_data = amplitude * np.sin(2 * np.pi * freq * t)
-elif waveform == "square":
-    wave_data = amplitude * np.sign(np.sin(2 * np.pi * freq * t))
-elif waveform == "sawtooth":
-    wave_data = amplitude * (2 * (t * freq - np.floor(t * freq + 0.5)))
-elif waveform == "harmonic":
-    wave_data = np.zeros_like(t)
-    for n in range(1, 11):
-        wave_data += amplitude * np.sin(2 * np.pi * freq * n * t)
-
-wave_data = (wave_data * 32767).astype(np.int16)
-
-with wave.open("$TMP_DIR/custom.wav", 'w') as wav_file:
-    wav_file.setnchannels(1)
-    wav_file.setsampwidth(2)
-    wav_file.setframerate(sample_rate)
-    wav_file.writeframes(wave_data.tobytes())
-EOF
-    echo "$TMP_DIR/custom.wav" > "$TMP_DIR/generated_files.txt"
+stop_transmissions() {
+    sudo pkill -f rpitx
+    sudo pkill -f tran.sh
+    rm -rf "$TMP_DIR/*"
+    echo "Stopped all transmissions and cleared the temporary files."
 }
 
 generate_custom_wav() {
     freq="$1"
     duration="$2"
     waveform="$3"
-    sample_rate=$(determine_sample_rate "$freq")
+
     python3 << EOF
 import numpy as np
 import wave
 
+def determine_sample_rate(freq):
+    return 48000 if freq <= 24000 else min(2 * freq, 250000)
+
 freq = $freq
 duration = $duration
-sample_rate = $sample_rate
+sample_rate = determine_sample_rate(freq)
 amplitude = $AUDIO_AMPLITUDE
 waveform = "$waveform"
 
@@ -443,11 +375,12 @@ with wave.open("$TMP_DIR/custom.wav", 'w') as wav_file:
     wav_file.writeframes(wave_data.tobytes())
 EOF
     echo "$TMP_DIR/custom.wav" > "$TMP_DIR/generated_files.txt"
+    transmit_files1
 }
 
 custom_menu() {
     menu_items=("Single Frequency" "" "Sweep" "")
-    menuchoice=$(whiptail --title "Rife Machine - Custom Transmission" --menu "Choose a transmission type:" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+    menuchoice=$(whiptail --title "RPiTX - Custom Transmission" --menu "Choose a transmission type:" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ]; then
         echo "User cancelled."
         main_menu
@@ -480,7 +413,7 @@ custom_single() {
     fi
 
     waveform=$(choose_waveform)
-    generate_custom_wav1 "$freq" "$duration" "$waveform"
+    generate_custom_wav "$freq" "$duration" "$waveform"
     transmit_files1
 }
 
@@ -525,15 +458,15 @@ sweep_wave = amplitude * np.sin(2 * np.pi * (start_freq * t + (k / 2) * t ** 2))
 
 sweep_wave = (sweep_wave * 32767).astype(np.int16)
 
-with wave.open("$TMP_DIR/custom_sweep.wav", 'w') as wav_file:
+with wave.open("$TMP_SWEEP_DIR/custom_sweep.wav", 'w') as wav_file:
     wav_file.setnchannels(1)
     wav_file.setsampwidth(2)
     wav_file.setframerate(sample_rate)
     wav_file.writeframes(sweep_wave.tobytes())
 EOF
 
-    echo "$TMP_DIR/custom_sweep.wav" > "$TMP_DIR/generated_files.txt"
-    transmit_files
+    echo "$TMP_SWEEP_DIR/custom_sweep.wav" > "$TMP_DIR/generated_files.txt"
+    transmit_files1
 }
 
 transmit_files() {
@@ -578,6 +511,33 @@ transmit_files1() {
     chmod +x $TRANSMIT_SCRIPT
 
     screen -dmS rpitx_session bash -c "$TRANSMIT_SCRIPT"
+}
+
+main_menu() {
+    menu_items=("View All Database's" "" "Database's" "" "Custom" "" "Stop Transmission" "" "Imported WAV files" "")
+    menuchoice=$(whiptail --title "RPiTX - Main Menu" --menu "Choose a category:" 20 78 10 "${menu_items[@]}" 3>&1 1>&2 2>&3)
+    if [ $? -ne 0 ]; then
+        echo "User cancelled."
+        exit 0
+    fi
+
+    case $menuchoice in
+        "View All Database's")
+            view_all_conditions
+            ;;
+        "Database's")
+            rife_menu
+            ;;
+        "Stop Transmission")
+            stop_transmissions
+            ;;
+        "Custom")
+            custom_menu
+            ;;
+        "Imported WAV files")
+            list_imported_wav_files
+            ;;
+    esac
 }
 
 # Main script execution
