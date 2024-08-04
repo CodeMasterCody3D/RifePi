@@ -3,7 +3,7 @@
 RPITX_DIR="$HOME/rpitx"
 RIFE_DIR="$HOME/rpitx/src/rife"
 TMP_SWEEP_DIR="$HOME/rpitx/src/rife/tmp_sweeps"
-TEST_DIR="$HOME/Test"
+REPO_DIR="$HOME/RifePi"
 START_SCRIPT="$HOME/start.sh"
 STOP_SCRIPT="$HOME/stop.sh"
 TRAN_SCRIPT="$HOME/rpitx/tran.sh"
@@ -50,16 +50,16 @@ install_rife_modification() {
 
     # Copy the rife files
     echo "Copying rife files..."
-    cp -r "$TEST_DIR/rife/"* "$RIFE_DIR/"
+    cp -r "$REPO_DIR/rife/"* "$RIFE_DIR/"
 
     # Copy start.sh and stop.sh to $HOME
     echo "Copying start.sh and stop.sh..."
-    cp "$TEST_DIR/start.sh" "$START_SCRIPT"
-    cp "$TEST_DIR/stop.sh" "$STOP_SCRIPT"
+    cp "$REPO_DIR/start.sh" "$START_SCRIPT"
+    cp "$REPO_DIR/stop.sh" "$STOP_SCRIPT"
 
     # Copy tran.sh to $HOME/rpitx
     echo "Copying tran.sh..."
-    cp "$TEST_DIR/tran.sh" "$TRAN_SCRIPT"
+    cp "$REPO_DIR/tran.sh" "$TRAN_SCRIPT"
 
     # Set permissions and ownership
     echo "Setting permissions and ownership..."
