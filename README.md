@@ -6,20 +6,22 @@ This project uses RPiTX to generate and transmit Rife frequencies. It includes s
 
 1. **Clone the Repository:**
    
-   '''sh
-   git clone https://github.com/CodeMasterCody3D/RifePi.git
+```sh
+git clone https://github.com/CodeMasterCody3D/RifePi.git
    cd RifePi
-   '''
+```
 
 3. **Run the Installation Script:**
 
    The installation script will install the required dependencies, clone the RPiTX repository, and set up the necessary directories and files. Set permissions first with chmod.
 
-     chmod +x rifeinstall.sh
+```sh
+chmod +x rifeinstall.sh
 
    Now you can run the script by typing.
 
     ./rifeinstall.sh
+```
    
 
    This script will:
@@ -34,13 +36,17 @@ This project uses RPiTX to generate and transmit Rife frequencies. It includes s
 
    Use the start.sh script to start the transmission process.
 
-   ./start.sh
+```sh
+./start.sh
+```
 
 2. **Stop the Transmission:**
 
    Use the stop.sh script to stop the transmission process and clear the temporary files.
 
-   ./stop.sh
+```sh
+./stop.sh
+```
 
 ## Configuration
 
