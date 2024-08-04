@@ -6,10 +6,10 @@ This project uses RPiTX to generate and transmit Rife frequencies. It includes s
 
 1. **Clone the Repository:**
    
-'''sh
+   '''sh
    git clone https://github.com/CodeMasterCody3D/RifePi.git
    cd RifePi
-'''
+   '''
 
 3. **Run the Installation Script:**
 
