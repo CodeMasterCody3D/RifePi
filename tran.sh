@@ -15,8 +15,9 @@ RPITX_PATH="$HOME_DIR/rpitx"
 LOG_FILE="/tmp/rife_transmission.log"
 
 choose_output_frequency() {
-    OUTPUT_FREQ=$(whiptail --inputbox "Enter output Frequency (in Hz). Default is 3.1 MHz" 8 78 $DEFAULT_OUTPUT_FREQ --title "Change Carrier Frequency" 3>&1 1>&2 2>&3)
-    OUTPUT_FREQ=${OUTPUT_FREQ:-$DEFAULT_OUTPUT_FREQ}
+    OUTPUT_FREQ=$(whiptail --inputbox "Enter output Frequency (in MHz). Default is 3.1 MHz" 8 78 $DEFAULT_OUTPUT_FREQ --title "Change Carrier Frequency" 3>&1 1>&2 2>&3)
+    OUTPUT_FREQ="${OUTPUT_FREQ}e6" # Append e6 to the input
+    OUTPUT_FREQ=${OUTPUT_FREQ:-"${DEFAULT_OUTPUT_FREQ}e6"}
 }
 
 choose_audio_amplitude() {
