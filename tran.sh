@@ -3,6 +3,7 @@
 # Define variables
 DEFAULT_OUTPUT_FREQ=3.1e6
 HOME_DIR="$HOME"
+IMPORT_DIR="$HOME_DIR/rpitx/src/rife/sweeps"
 TMP_DIR="$HOME_DIR/rpitx/src/rife/tmp_files"
 TMP_SWEEP_DIR="$HOME_DIR/rpitx/src/rife/tmp_sweeps"
 AUDIO_AMPLITUDE=0.5
@@ -316,7 +317,7 @@ list_imported_wav_files() {
     wav_files=()
     while IFS= read -r wav_file; do
         wav_files+=("$(basename "$wav_file")" "")
-    done < <(find "$TMP_SWEEP_DIR" -name '*.wav')
+    done < <(find "$IMPORT_DIR" -name '*.wav')
 
     wav_choice=$(whiptail --title "RPiTX - Imported WAV Files" --menu "Choose a WAV file to transmit:" 20 78 10 "${wav_files[@]}" 3>&1 1>&2 2>&3)
     if [ $? -ne 0 ]; then
@@ -325,7 +326,7 @@ list_imported_wav_files() {
         return
     fi
 
-    echo "$TMP_SWEEP_DIR/$wav_choice" > "$TMP_DIR/generated_files.txt"
+    echo "$IMPORT_DIR/$wav_choice" > "$TMP_DIR/generated_files.txt"
     transmit_files
 }
 
